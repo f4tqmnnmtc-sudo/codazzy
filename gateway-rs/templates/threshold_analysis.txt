@@ -1,0 +1,33 @@
+Analiza este servidor y genera umbrales de alerta optimos.
+
+## SERVIDOR
+- ID: {device_id}
+- Nombre: {device_name}
+- Tipo: {device_type}
+- Protocolo: {protocol}
+- Ubicacion: {location}
+
+## METRICAS DISPONIBLES
+{metrics_list}
+
+## PROCESOS EN EJECUCION
+{processes_info}
+
+## METRICAS ACTUALES
+{current_metrics_info}
+{documents_section}
+## TU TAREA
+1. Determina que tipo de servidor es
+2. Configura umbrales apropiados para cada metrica relevante
+3. Ajusta los umbrales segun la carga actual observada
+
+## FORMATO DE RESPUESTA (JSON)
+{
+  "device_type_detected": "tipo_detectado",
+  "thresholds": [
+    { "metric": "cpu_percent", "display_name": "CPU", "unit": "%", "warning": 70, "critical": 85, "comparison": "gt", "priority": "high", "reason": "Explicacion" }
+  ],
+  "ignored_metrics": ["metrica1"],
+  "general_notes": "Notas generales"
+}
+

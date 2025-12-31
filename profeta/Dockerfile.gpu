@@ -1,0 +1,33 @@
+FROM nvidia/cuda:12.0.0-base-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONPATH=/app
+ENV MODEL_NAME=amazon/chronos-t5-base
+ENV LOG_LEVEL=INFO
+
+# deps
+RUN apt-get update && apt-get install -y \
+    python3.11 python3.11-dev python3-pip git curl build-essential \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -f /usr/bin/python /usr/bin/python3 \
+    && ln -s /usr/bin/python3.11 /usr/bin/python \
+    && ln -s /usr/bin/python3.11 /usr/bin/python3
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app/ ./app/
+COPY config/ ./config/
+COPY data/ ./data/
+
+RUN mkdir -p /app/data/input /app/data/output /app/logs
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

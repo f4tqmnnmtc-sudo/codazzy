@@ -1,0 +1,267 @@
+services:
+  influxdb:
+    image: influxdb:2.7
+    container_name: codazzy-influxdb
+    ports:
+      - "${INFLUX_PORT:-8086}:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUX_USER:-admin}
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUX_PASSWORD:-password123}
+      - DOCKER_INFLUXDB_INIT_ORG=${INFLUX_ORG:-monitoring}
+      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUX_BUCKET:-metrics}
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUX_TOKEN:-codazzy-admin-token-super-secret}
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - influxdb-config:/etc/influxdb2
+    networks:
+      - codazzy_monitoring
+      - snmp-lab-mgmt
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '20.0'
+          memory: 12G
+        reservations:
+          cpus: '6.0'
+          memory: 4G
+
+  nats:
+    image: nats:2.10
+    container_name: codazzy-nats
+    ports:
+      - "${NATS_PORT:-4222}:4222"
+      - "${NATS_MONITOR_PORT:-8222}:8222"
+      - "6222:6222"
+    command: ["-c", "/etc/nats/nats.conf"]
+    volumes:
+      - ./nats.conf:/etc/nats/nats.conf:ro
+      - nats-data:/data
+    networks:
+      - codazzy_monitoring
+    healthcheck:
+      test: ["CMD", "nats-server", "--help"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 5G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+  redis:
+    image: redis:7.2-alpine
+    container_name: codazzy-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --appendonly yes --maxmemory 1024mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - codazzy_monitoring
+      - snmp-lab-mgmt
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: codazzy-postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-codazzy}
+      - POSTGRES_USER=${POSTGRES_USER:-codazzy}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-codazzy_secure_password_123}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./gateway-rs/migrations:/docker-entrypoint-initdb.d:ro
+    networks:
+      - codazzy_monitoring
+      - snmp-lab-mgmt
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codazzy -d codazzy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  gateway-rs:
+    build:
+      context: ./gateway-rs
+      dockerfile: Dockerfile.dev
+    container_name: codazzy-gateway-rs
+    ports:
+      - "${GATEWAY_PORT:-8000}:${GATEWAY_PORT:-8000}"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    privileged: true
+    depends_on:
+      influxdb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    environment:
+      - HOST=0.0.0.0
+      - PORT=${GATEWAY_PORT:-8000}
+      - DEBUG=${DEBUG:-true}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - RUST_LOG=${RUST_LOG:-info,codazzy_gateway=debug}
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=${INFLUX_TOKEN:-codazzy-admin-token-super-secret}
+      - INFLUX_ORG=${INFLUX_ORG:-monitoring}
+      - INFLUX_BUCKET=${INFLUX_BUCKET:-metrics}
+      - INFLUX_ML_BUCKET=${INFLUX_ML_BUCKET:-ml_features}
+      - REDIS_URL=redis://redis:6379
+      - NATS_URL=nats://nats:4222
+      - STREAM_NAME=${STREAM_NAME:-METRICS}
+      - CONSUMER_NAME=${CONSUMER_NAME:-metrics-processor}
+      - CACHE_TTL=${CACHE_TTL:-30}
+      - SECRET_KEY=${SECRET_KEY:-codazzy-super-secret-key-change-in-production}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-codazzy}
+      - POSTGRES_USER=${POSTGRES_USER:-codazzy}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-codazzy_secure_password_123}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-codazzy}:${POSTGRES_PASSWORD:-codazzy_secure_password_123}@postgres:5432/${POSTGRES_DB:-codazzy}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
+      - RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-1000}
+      - RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-60}
+      - BATCH_SIZE=${BATCH_SIZE:-1000}
+      - FETCH_BATCH_SIZE=${FETCH_BATCH_SIZE:-2000}
+      - CONSUMER_WORKERS=${CONSUMER_WORKERS:-32}
+      - INFLUX_BATCH_FLUSH_INTERVAL_MS=${INFLUX_BATCH_FLUSH_INTERVAL_MS:-50}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5-nano}
+      - OPENAI_MAX_TOKENS=${OPENAI_MAX_TOKENS:-16000}
+      - OPENAI_TEMPERATURE=${OPENAI_TEMPERATURE:-0.1}
+    networks:
+      - codazzy_monitoring
+      - snmp-lab-mgmt
+    volumes:
+      - ./gateway-rs:/app
+      - gateway-rs-cargo-cache:/usr/local/cargo/registry
+      - gateway-rs-target-cache:/app/target
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./agent/build-portable:/opt/agent-packages:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '20.0'
+          memory: 25G
+        reservations:
+          cpus: '3.0'
+          memory: 2G
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost:${GATEWAY_PORT:-8000}
+        - NEXT_PUBLIC_CHRONOS_URL=http://localhost:${PROFETA_PORT:-9021}
+    container_name: codazzy-dashboard
+    environment:
+      - NODE_ENV=production
+    network_mode: host
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:7245/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  profeta:
+    build:
+      context: ./profeta
+      dockerfile: Dockerfile.gpu
+    container_name: codazzy-profeta
+    ports:
+      - "${PROFETA_PORT:-9021}:8000"
+    environment:
+      - MODEL_NAME=${CHRONOS_MODEL:-amazon/chronos-t5-tiny}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PYTHONPATH=/app
+      - NVIDIA_VISIBLE_DEVICES=all
+      - USE_GPU=${USE_GPU:-true}
+    volumes:
+      - ./profeta/app:/app/app
+      - ./profeta/data:/app/data
+      - ./profeta/logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 12G
+        reservations:
+          memory: 6G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    runtime: nvidia
+    networks:
+      - codazzy_monitoring
+
+volumes:
+  influxdb-data:
+    driver: local
+  influxdb-config:
+    driver: local
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local
+  nats-data:
+    driver: local
+  gateway-rs-cargo-cache:
+    driver: local
+  gateway-rs-target-cache:
+    driver: local
+
+networks:
+  codazzy_monitoring:
+    driver: bridge
+  snmp-lab-mgmt:
+    driver: bridge

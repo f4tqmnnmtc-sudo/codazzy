@@ -1,0 +1,9 @@
+pub type Bytes = u64;
+pub type Packets = u64;
+pub type Opes = u64;
+pub type Percent = f32;
+pub type Celsius = f32;
+pub type UnixTs = i64;
+pub type Seconds = u64;
+pub type Ms = u64;
+pub type Count = u64;

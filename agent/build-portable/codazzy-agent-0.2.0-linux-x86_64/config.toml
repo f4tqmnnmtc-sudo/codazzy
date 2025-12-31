@@ -1,0 +1,58 @@
+[node]
+id = "auto-generated"
+environment = "production"
+tags = ["server"]
+
+[collection]
+interval_seconds = 5
+
+[collection.hardware]
+enabled = true
+cpu_detailed = true
+memory_detailed = true
+temperature_sensors = true
+gpu_metrics = false
+power_metrics = false
+
+[collection.network]
+enabled = true
+interface_details = true
+bandwidth_monitoring = true
+latency_monitoring = false
+dns_metrics = false
+
+[collection.storage]
+enabled = true
+disk_io_detailed = true
+filesystem_monitoring = true
+smart_metrics = false
+
+[collection.processes]
+enabled = true
+interval_seconds = 300
+
+[transport]
+nats_url = "nats://\${NATS_HOST:-nats}:4222"
+topic_prefix = "metrics"
+buffer_size = 1000
+compression = true
+retry_attempts = 3
+batch_size = 10
+flush_interval_seconds = 30
+connection_timeout_seconds = 10
+
+[metrics]
+precision = "medium"
+retention_hours = 24
+exclude_interfaces = ["lo", "docker0", "veth*"]
+exclude_filesystems = ["tmpfs", "devtmpfs", "sysfs", "proc"]
+
+[metrics.custom_labels]
+environment = "production"
+location = "remote"
+
+[logging]
+level = "info"
+max_file_size_mb = 10
+max_files = 5
+json_format = false

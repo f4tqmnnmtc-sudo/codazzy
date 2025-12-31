@@ -1,0 +1,42 @@
+[package]
+name = "codazzy-agent"
+version = "0.2.0"
+edition = "2021"
+authors = ["Armando José Freitas Bontempo <armando@example.com>"]
+description = "Agente de monitoreo para la plataforma Codazzy"
+license = "MIT"
+repository = "https://github.com/codazzy/codazzy"
+readme = "README.md"
+keywords = ["monitoring", "metrics", "agent", "nats"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+tokio = { version = "1.47", features = ["rt-multi-thread", "macros", "time", "signal", "fs"] }
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+rmp-serde = "1.1"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+chrono = { version = "0.4", features = ["serde"] }
+hostname = "0.4"
+sysinfo = "0.36"
+async-nats = "0.42"
+lz4_flex = "0.11"
+snmp = { version = "0.2", optional = true }
+ssh2 = { version = "0.9", optional = true }
+
+[features]
+default = []
+network-devices = ["snmp", "ssh2"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true

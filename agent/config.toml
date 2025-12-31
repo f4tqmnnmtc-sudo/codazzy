@@ -1,0 +1,58 @@
+[node]
+id = "hardware-node-01"
+location = "local-development"
+environment = "development"
+tags = ["test", "local"]
+
+[collection]
+interval = 5
+
+[collection.hardware]
+enabled = true
+cpu_detailed = true
+memory_detailed = true
+temperature_sensors = true
+gpu_metrics = false
+power_metrics = false
+
+[collection.network]
+enabled = true
+interface_details = true
+bandwidth_monitoring = true
+latency_monitoring = false
+dns_metrics = false
+
+[collection.storage]
+enabled = true
+disk_io_detailed = true
+filesystem_monitoring = true
+smart_metrics = false
+
+[collection.processes]
+enabled = true
+interval = 30
+
+[transport]
+nats_url = "nats://localhost:4222"
+topic_prefix = "metrics"
+buffer_size = 1000
+compression = true
+retry_attempts = 3
+batch_size = 10
+flush_interval = 30
+conn_timeout = 10
+
+[metrics]
+precision = "medium"
+retention_hours = 24
+exclude_interfaces = ["lo", "docker0", "veth*", "br-*"]
+exclude_filesystems = ["tmpfs", "devtmpfs", "sysfs", "proc"]
+
+[metrics.custom_labels]
+environment = "development"
+
+[logging]
+level = "info"
+max_file_size_mb = 100
+max_files = 100
+json_format = true

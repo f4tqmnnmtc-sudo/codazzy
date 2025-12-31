@@ -1,0 +1,59 @@
+[node]
+id = "servidor-01"
+location = "datacenter-1"
+tags = ["production", "web"]
+environment = "production"
+
+[collection]
+interval = 5
+
+[collection.hardware]
+enabled = true
+cpu_detailed = true
+memory_detailed = true
+temperature_sensors = true
+gpu_metrics = false
+
+[collection.network]
+enabled = true
+interface_details = true
+bandwidth_monitoring = true
+
+[collection.storage]
+enabled = true
+disk_io_detailed = true
+filesystem_monitoring = true
+
+[collection.processes]
+enabled = true
+interval = 300
+
+[transport]
+nats_url = "nats://localhost:4222"
+topic_prefix = "metrics"
+buffer_size = 1000
+compression = true
+retry_attempts = 3
+batch_size = 10
+flush_interval = 30
+conn_timeout = 10
+
+# TLS (opcional)
+# [transport.tls]
+# enabled = true
+# ca_file = "/path/to/ca.pem"
+
+[metrics]
+precision = "medium"
+retention_hours = 24
+exclude_interfaces = ["lo", "docker0", "veth*"]
+exclude_filesystems = ["tmpfs", "devtmpfs", "sysfs", "proc"]
+
+[metrics.custom_labels]
+datacenter = "dc1"
+rack = "r42"
+
+[logging]
+level = "info"
+max_file_size_mb = 10
+max_files = 5
