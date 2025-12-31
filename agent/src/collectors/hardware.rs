@@ -6,7 +6,7 @@ use crate::error::AgentError;
 use crate::metrics::{HardwareMetrics, MemoryInfo, ThermalReading};
 use crate::types::{Celsius, Ms, Percent};
 
-const CPU_SAMPLE_DELAY_MS: Ms = 200;
+const CPU_SAMPLE_DELAY_MS: Ms = 200; // si no introduzco un delay, no funciona correctamente la lectura de la cpu (no se actualiza el valor)
 
 pub struct HardwareCollector {
     sys: System,
@@ -56,8 +56,7 @@ impl HardwareCollector {
     }
 
     fn read_memory(&self) -> MemoryInfo {
-        let mut s = System::new();
-        s.refresh_memory();
+        self.sys.refresh_memory();
         
         let total = s.total_memory();
         let used = s.used_memory();
@@ -95,7 +94,7 @@ impl HardwareCollector {
                 }
                 
                 Some(ThermalReading {
-                    name: label,
+                    name: label.to_owned(),
                     temperature: temp,
                     critical_temp: component.critical().map(|c| c as Celsius),
                 })

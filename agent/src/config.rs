@@ -246,6 +246,8 @@ impl Default for Config {
     }
 }
 
+const VALID_PRECISIONS: &[&str] = &["low", "medium", "high"];
+
 impl Config {
     pub async fn load() -> Result<Self, AgentError> {
         let paths = Self::config_paths();
@@ -364,12 +366,11 @@ impl Config {
             ));
         }
         
-        let v_precisions = ["low", "medium", "high"];
-        if !v_precisions.contains(&self.metrics.precision.as_str()) {
+        if !VALID_PRECISIONS.contains(&self.metrics.precision.as_str()) {
             return Err(AgentError::config(format!(
                 "precision '{}' inválida, usar: {}",
                 self.metrics.precision,
-                v_precisions.join(", ")
+                VALID_PRECISIONS.join(", ")
             )));
         }
         
