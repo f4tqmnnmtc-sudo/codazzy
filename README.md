@@ -275,10 +275,10 @@ make logs-profeta
 
 El gateway expone una API REST documentada en `gateway-rs/README.md`. Endpoints principales:
 
-- `GET /api/v1/metrics/overview` — Resumen de todos los nodos
+- `GET /api/v1/metrics/agents` — Resumen de todos los nodos
 - `GET /api/v1/metrics/timeseries` — Series temporales
 - `POST /api/v1/discovery/scan/start` — Iniciar escaneo de red
-- `GET /api/v1/alerts/active` — Alertas activas
+- `GET /api/v1/alerts/predictions` — Predicciones de alertas
 - `GET /api/v1/predictions/:node_id` — Predicciones para un servidor
 
 ---
