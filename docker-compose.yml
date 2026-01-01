@@ -16,21 +16,12 @@ services:
       - influxdb-config:/etc/influxdb2
     networks:
       - codazzy_monitoring
-      - snmp-lab-mgmt
     healthcheck:
       test: ["CMD", "influx", "ping"]
       interval: 30s
       timeout: 10s
       retries: 3
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '20.0'
-          memory: 12G
-        reservations:
-          cpus: '6.0'
-          memory: 4G
 
   nats:
     image: nats:2.10
@@ -38,7 +29,6 @@ services:
     ports:
       - "${NATS_PORT:-4222}:4222"
       - "${NATS_MONITOR_PORT:-8222}:8222"
-      - "6222:6222"
     command: ["-c", "/etc/nats/nats.conf"]
     volumes:
       - ./nats.conf:/etc/nats/nats.conf:ro
@@ -51,14 +41,7 @@ services:
       timeout: 5s
       retries: 3
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '4.0'
-          memory: 5G
-        reservations:
-          cpus: '1.0'
-          memory: 2G
+
   redis:
     image: redis:7.2-alpine
     container_name: codazzy-redis
@@ -69,7 +52,6 @@ services:
       - redis-data:/data
     networks:
       - codazzy_monitoring
-      - snmp-lab-mgmt
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 30s
@@ -92,33 +74,23 @@ services:
       - ./gateway-rs/migrations:/docker-entrypoint-initdb.d:ro
     networks:
       - codazzy_monitoring
-      - snmp-lab-mgmt
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U codazzy -d codazzy"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 2G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
 
   gateway-rs:
     build:
       context: ./gateway-rs
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
     container_name: codazzy-gateway-rs
     ports:
-      - "${GATEWAY_PORT:-8000}:${GATEWAY_PORT:-8000}"
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-    privileged: true
+      - "${GATEWAY_PORT:-8000}:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./agent/build-portable:/opt/agent-packages:ro
     depends_on:
       influxdb:
         condition: service_healthy
@@ -130,10 +102,10 @@ services:
         condition: service_started
     environment:
       - HOST=0.0.0.0
-      - PORT=${GATEWAY_PORT:-8000}
-      - DEBUG=${DEBUG:-true}
-      - ENVIRONMENT=${ENVIRONMENT:-development}
-      - RUST_LOG=${RUST_LOG:-info,codazzy_gateway=debug}
+      - PORT=8000
+      - DEBUG=${DEBUG:-false}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - RUST_LOG=${RUST_LOG:-info,codazzy_gateway=info}
       - INFLUX_URL=http://influxdb:8086
       - INFLUX_TOKEN=${INFLUX_TOKEN:-codazzy-admin-token-super-secret}
       - INFLUX_ORG=${INFLUX_ORG:-monitoring}
@@ -159,33 +131,18 @@ services:
       - CONSUMER_WORKERS=${CONSUMER_WORKERS:-32}
       - INFLUX_BATCH_FLUSH_INTERVAL_MS=${INFLUX_BATCH_FLUSH_INTERVAL_MS:-50}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5-nano}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
       - OPENAI_MAX_TOKENS=${OPENAI_MAX_TOKENS:-16000}
       - OPENAI_TEMPERATURE=${OPENAI_TEMPERATURE:-0.1}
     networks:
       - codazzy_monitoring
-      - snmp-lab-mgmt
-    volumes:
-      - ./gateway-rs:/app
-      - gateway-rs-cargo-cache:/usr/local/cargo/registry
-      - gateway-rs-target-cache:/app/target
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./agent/build-portable:/opt/agent-packages:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
-    deploy:
-      resources:
-        limits:
-          cpus: '20.0'
-          memory: 25G
-        reservations:
-          cpus: '3.0'
-          memory: 2G
+      start_period: 30s
 
   dashboard:
     build:
@@ -219,15 +176,13 @@ services:
     ports:
       - "${PROFETA_PORT:-9021}:8000"
     environment:
-      - MODEL_NAME=${CHRONOS_MODEL:-amazon/chronos-t5-tiny}
+      - MODEL_NAME=${CHRONOS_MODEL:-amazon/chronos-t5-base}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - PYTHONPATH=/app
       - NVIDIA_VISIBLE_DEVICES=all
       - USE_GPU=${USE_GPU:-true}
     volumes:
-      - ./profeta/app:/app/app
-      - ./profeta/data:/app/data
-      - ./profeta/logs:/app/logs
+      - profeta-models:/root/.cache/huggingface
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -237,10 +192,7 @@ services:
       start_period: 120s
     deploy:
       resources:
-        limits:
-          memory: 12G
         reservations:
-          memory: 6G
           devices:
             - driver: nvidia
               count: 1
@@ -251,22 +203,12 @@ services:
 
 volumes:
   influxdb-data:
-    driver: local
   influxdb-config:
-    driver: local
   redis-data:
-    driver: local
   postgres-data:
-    driver: local
   nats-data:
-    driver: local
-  gateway-rs-cargo-cache:
-    driver: local
-  gateway-rs-target-cache:
-    driver: local
+  profeta-models:
 
 networks:
   codazzy_monitoring:
-    driver: bridge
-  snmp-lab-mgmt:
     driver: bridge

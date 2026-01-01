@@ -1,0 +1,32 @@
+services:
+  gateway-rs:
+    build:
+      context: ./gateway-rs
+      dockerfile: Dockerfile.dev
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    privileged: true
+    environment:
+      - DEBUG=true
+      - ENVIRONMENT=development
+      - RUST_LOG=info,codazzy_gateway=debug
+    volumes:
+      - ./gateway-rs:/app
+      - gateway-rs-cargo-cache:/usr/local/cargo/registry
+      - gateway-rs-target-cache:/app/target
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./agent/build-portable:/opt/agent-packages:ro
+    healthcheck:
+      start_period: 60s
+
+  profeta:
+    volumes:
+      - ./profeta/app:/app/app
+      - ./profeta/data:/app/data
+      - ./profeta/logs:/app/logs
+
+volumes:
+  gateway-rs-cargo-cache:
+  gateway-rs-target-cache:
+
