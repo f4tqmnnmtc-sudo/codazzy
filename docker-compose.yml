@@ -195,9 +195,14 @@ services:
         - NEXT_PUBLIC_API_URL=http://localhost:${GATEWAY_PORT:-8000}
         - NEXT_PUBLIC_CHRONOS_URL=http://localhost:${PROFETA_PORT:-9021}
     container_name: codazzy-dashboard
+    ports:
+      - "${DASHBOARD_PORT:-7245}:7245"
     environment:
       - NODE_ENV=production
-    network_mode: host
+      - GATEWAY_INTERNAL_URL=http://gateway-rs:8000
+      - CHRONOS_API_URL=http://profeta:8000
+    networks:
+      - codazzy_monitoring
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:7245/"]

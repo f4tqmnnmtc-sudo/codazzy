@@ -336,7 +336,7 @@ function ChartSection({ pm, onExportCSV, onExportJSON }: ChartSectionProps) {
       {/* Error */}
       {pm.error && <ErrorBanner message={pm.error} className="mb-4" />}
 
-      {/* Chart */}
+      {/* Rechart */}
       <ChartDisplay
         chartData={pm.chartData}
         forecastData={pm.forecastData}
@@ -344,8 +344,8 @@ function ChartSection({ pm, onExportCSV, onExportJSON }: ChartSectionProps) {
         historicalDataLength={pm.historicalData.length}
       />
 
-      {/* Forecast Stats */}
-      {pm.forecastData && (
+      {/* Mostrar estadisticas forecast y la generación de CSV y JSON */}
+      {/*pm.forecastData && (
         <ForecastStats
           forecastData={pm.forecastData}
           aggregationMethod={pm.aggregationMethod}
@@ -353,7 +353,7 @@ function ChartSection({ pm, onExportCSV, onExportJSON }: ChartSectionProps) {
           onExportCSV={onExportCSV}
           onExportJSON={onExportJSON}
         />
-      )}
+      )*/}
     </Card>
   );
 }

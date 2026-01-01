@@ -30,3 +30,4 @@ nats/data/
 **/Dockerfile.dev
 **get-codazzy.sh
 simulation/
+rss/

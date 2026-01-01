@@ -37,19 +37,19 @@ const COMPONENT_MAP: Record<string, string> = {
   memory: "memory_percent",
   memory_used: "memory_used",
   memory_percent: "memory_percent",
-  disk: "fs__usage_percent",  // "/" se convierte a "_" → "fs__usage_percent"
-  disk_used: "fs__used_space",
-  disk_percent: "fs__usage_percent",
+  disk: "fs_root_usage_percent",  // Disco raíz - formato actual del agente
+  disk_used: "fs_root_used_space",
+  disk_percent: "fs_root_usage_percent",
   load_1: "load_1",
   load_5: "load_5",
   load_15: "load_15",
-  temperature: "temp_CPU Package",
+  temperature: "temp_coretemp Core 0",
 };
 
-// Fallback components para compatibilidad
 const COMPONENT_FALLBACKS: Record<string, string[]> = {
-  disk: ["fs__usage_percent", "fs_root_usage_percent", "fs_home_usage_percent"],
+  disk: ["fs_root_usage_percent", "fs__usage_percent", "fs_home_usage_percent"],
   memory: ["memory_percent"],
+  temperature: ["temp_coretemp Core 0", "temp_CPU Package", "temp_acpitz temp1"],
 };
 
 const UNIT_MAP: Record<string, string> = {
@@ -109,7 +109,7 @@ class InfluxDataService {
           });
         }
       }
-    } catch {}
+    } catch {console.error("Error al obtener dispositivos teleco Influx");}
 
     try {
       const agentsRes = await fetch(`${this.gatewayUrl}/api/v1/metrics/agents`);
@@ -130,7 +130,7 @@ class InfluxDataService {
           });
         }
       }
-    } catch {}
+    } catch {console.error("Error al obtener dispositivos teleco Influx");}
 
     return servers.sort((a, b) => {
       if (a.server_type !== b.server_type) return a.server_type === "agent" ? -1 : 1;
@@ -207,7 +207,6 @@ class InfluxDataService {
     const fallbacks = COMPONENT_FALLBACKS[metricType] || [componentName];
     const isTraffic = componentName.includes("bytes_in") || componentName.includes("bytes_out");
 
-    // Intentar con el componente principal y fallbacks
     let data: { data?: Array<{ time: string; value: number }> } = { data: [] };
     
     for (const comp of [componentName, ...fallbacks]) {
@@ -224,6 +223,7 @@ class InfluxDataService {
           break;
         }
       } catch {
+        console.error("Error al obtener datos de Influx para el servidor", serverId, "y el tipo de métrica", metricType);
         continue;
       }
     }
@@ -270,18 +270,36 @@ class InfluxDataService {
   }
 
   convertToChronosFormat(data: InfluxMetricPoint[], seriesName: string, serverId?: string): ChronosMetrics {
-    const dataPoints: ChronosDataPoint[] = data.map((point) => {
-      let ts = point.timestamp;
+    const validPoints: { timestamp: Date; isoString: string; value: number }[] = [];
+    
+    for (const point of data) {
       try {
-        const date = new Date(ts);
-        ts = isNaN(date.getTime())
-          ? new Date().toISOString().replace(/\.\d{3}Z$/, "+00:00")
-          : date.toISOString().replace(/\.\d{3}Z$/, "+00:00");
+        const date = new Date(point.timestamp);
+        if (!isNaN(date.getTime())) {
+          validPoints.push({
+            timestamp: date,
+            isoString: date.toISOString().replace(/\.\d{3}Z$/, "+00:00"),
+            value: point.value,
+          });
+        }
       } catch {
-        ts = new Date().toISOString().replace(/\.\d{3}Z$/, "+00:00");
+        console.warn(`[convertToChronosFormat] Skipping invalid timestamp: ${point.timestamp}`);
       }
-      return { timestamp: ts, value: point.value };
+    }
+
+    validPoints.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    const seen = new Set<string>();
+    const uniquePoints = validPoints.filter((p) => {
+      const key = p.isoString;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
     });
+
+    const dataPoints: ChronosDataPoint[] = uniquePoints.map((p) => ({
+      timestamp: p.isoString,
+      value: p.value,
+    }));
 
     return {
       series_name: seriesName,

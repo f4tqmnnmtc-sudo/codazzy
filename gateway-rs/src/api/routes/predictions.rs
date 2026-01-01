@@ -1,11 +1,11 @@
-use axum::{
-    extract::{Path, Query, State},
-    Json,
-};
+use axum::{extract::{Path, Query, State}, Json};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::time::Duration;
 
 use crate::api::routes::AppState;
+use crate::config::CONFIG;
+use crate::error::AppError;
 use crate::services::influx_service::PredictionPoint;
 use crate::Result;
 
@@ -16,20 +16,18 @@ pub struct GetPredictionsQuery {
     pub range: String,
 }
 
-fn default_range() -> String {
-    "7d".to_string()
-}
+fn default_range() -> String { "7d".into() }
 
 #[derive(Debug, Deserialize)]
 pub struct SavePredictionsRequest {
     pub node_id: String,
     pub metric_type: String,
     pub model_type: String,
-    pub predictions: Vec<PredictionPointInput>,
+    pub predictions: Vec<PredictionInput>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct PredictionPointInput {
+pub struct PredictionInput {
     pub timestamp: i64,
     pub value: f64,
     pub lower_bound: Option<f64>,
@@ -38,51 +36,66 @@ pub struct PredictionPointInput {
 }
 
 pub async fn save_predictions(
-    State(state): State<AppState>,
-    Json(request): Json<SavePredictionsRequest>,
+    State(st): State<AppState>,
+    Json(req): Json<SavePredictionsRequest>,
 ) -> Result<Json<Value>> {
-    let predictions: Vec<PredictionPoint> = request
-        .predictions
-        .into_iter()
+    let pts: Vec<PredictionPoint> = req.predictions.into_iter()
         .map(|p| PredictionPoint {
-            timestamp: p.timestamp,
-            value: p.value,
-            lower_bound: p.lower_bound,
-            upper_bound: p.upper_bound,
+            timestamp: p.timestamp, value: p.value,
+            lower_bound: p.lower_bound, upper_bound: p.upper_bound,
             confidence: p.confidence,
         })
         .collect();
 
-    let count = predictions.len();
-
-    state
-        .influx_service
-        .save_predictions(
-            &request.node_id,
-            &request.metric_type,
-            &request.model_type,
-            &predictions,
-        )
-        .await?;
+    let n = pts.len();
+    st.influx_service.save_predictions(&req.node_id, &req.metric_type, &req.model_type, &pts).await?;
 
     Ok(Json(json!({
         "success": true,
-        "node_id": request.node_id,
-        "metric_type": request.metric_type,
-        "model_type": request.model_type,
-        "count": count
+        "node_id": req.node_id,
+        "metric_type": req.metric_type,
+        "model_type": req.model_type,
+        "count": n
     })))
 }
 
 pub async fn node_predictions(
-    State(state): State<AppState>,
+    State(st): State<AppState>,
     Path(node_id): Path<String>,
-    Query(query): Query<GetPredictionsQuery>,
+    Query(q): Query<GetPredictionsQuery>,
 ) -> Result<Json<Value>> {
-    let result = state
-        .influx_service
-        .predictions(Some(&node_id), query.metric_type.as_deref(), &query.range)
+    let out = st.influx_service
+        .predictions(Some(&node_id), q.metric_type.as_deref(), &q.range)
         .await?;
+    Ok(Json(out))
+}
 
-    Ok(Json(result))
+pub async fn forecast_daily(Json(req): Json<Value>) -> Result<Json<Value>> {
+    call_profeta("daily", req).await
+}
+
+pub async fn forecast_weekly(Json(req): Json<Value>) -> Result<Json<Value>> {
+    call_profeta("weekly", req).await
+}
+
+async fn call_profeta(period: &str, payload: Value) -> Result<Json<Value>> {
+    let cli = reqwest::Client::builder()
+        .timeout(Duration::from_secs(180))
+        .build()
+        .map_err(|e| AppError::Internal(format!("Error creando cliente HTTP: {e}")))?;
+
+    let url = format!("{}/metrics/forecast/{}", CONFIG.profeta_url, period);
+
+    let resp = cli.post(&url).json(&payload).send().await
+        .map_err(|e| AppError::Internal(format!("Error en peticion a Profeta: {e}")))?;
+
+    if !resp.status().is_success() {
+        let (code, body) = (resp.status(), resp.text().await.unwrap_or_default());
+        return Err(AppError::Internal(format!("Profeta fallo ({code}): {body}")));
+    }
+
+    let data: Value = resp.json().await
+        .map_err(|e| AppError::Internal(format!("Respuesta invalida de Profeta: {e}")))?;
+
+    Ok(Json(data))
 }
