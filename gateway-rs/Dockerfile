@@ -1,4 +1,4 @@
-FROM rust:1.83-slim-bookworm AS builder
+FROM rust:slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y \
     pkg-config \
@@ -7,13 +7,10 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock* ./
-
-RUN mkdir -p src && \
-    echo "fn main() {}" > src/main.rs && \
-    echo "pub fn lib() {}" > src/lib.rs
-
-RUN cargo build --release && rm -rf src target/release/deps/codazzy*
 COPY src ./src
+COPY templates ./templates
+COPY migrations ./migrations
+
 RUN cargo build --release
 
 FROM debian:bookworm-slim
