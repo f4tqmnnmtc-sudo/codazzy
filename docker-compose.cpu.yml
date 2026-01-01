@@ -1,0 +1,35 @@
+services:
+  profeta:
+    build:
+      context: ./profeta
+      dockerfile: Dockerfile
+    container_name: codazzy-profeta
+    ports:
+      - "${PROFETA_PORT:-9021}:8000"
+    environment:
+      - MODEL_NAME=${CHRONOS_MODEL:-amazon/chronos-t5-tiny}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PYTHONPATH=/app
+      - USE_GPU=false
+    volumes:
+      - ./profeta/app:/app/app
+      - ./profeta/data:/app/data
+      - ./profeta/logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+    networks:
+      - codazzy_monitoring
+
+networks:
+  codazzy_monitoring:
