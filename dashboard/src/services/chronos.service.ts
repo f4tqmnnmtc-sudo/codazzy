@@ -2,6 +2,7 @@ import {
   getChronosHealth,
   getDailyForecast as getDailyForecastAction,
   getWeeklyForecast as getWeeklyForecastAction,
+  type ActionResult,
 } from "@/app/actions/chronos";
 
 export interface ChronosDataPoint {
@@ -153,19 +154,32 @@ function downsample(points: ChronosDataPoint[], target: number): ChronosDataPoin
   return result;
 }
 
+function unwrapResult<T>(result: ActionResult<T>): T {
+  if (!result.success) {
+    throw new Error(result.error);
+  }
+  return result.data;
+}
+
 export const chronosService = {
   async getDailyForecast(request: ChronosForecastRequest): Promise<ChronosForecastResponse> {
-    if (request.metrics.data_points.length > 1440) {
-      request.metrics.data_points = downsample(request.metrics.data_points, 1440);
+    // Limitar a 512 puntos para predicciones más rápidas (era 1440)
+    const MAX_POINTS = 512;
+    if (request.metrics.data_points.length > MAX_POINTS) {
+      request.metrics.data_points = downsample(request.metrics.data_points, MAX_POINTS);
     }
-    return getDailyForecastAction(request);
+    const result = await getDailyForecastAction(request);
+    return unwrapResult(result);
   },
 
   async getWeeklyForecast(request: ChronosForecastRequest): Promise<ChronosForecastResponse> {
-    if (request.metrics.data_points.length > 10080) {
-      request.metrics.data_points = downsample(request.metrics.data_points, 10080);
+    // Limitar a 1024 puntos para predicciones semanales (era 10080)
+    const MAX_POINTS = 1024;
+    if (request.metrics.data_points.length > MAX_POINTS) {
+      request.metrics.data_points = downsample(request.metrics.data_points, MAX_POINTS);
     }
-    return getWeeklyForecastAction(request);
+    const result = await getWeeklyForecastAction(request);
+    return unwrapResult(result);
   },
 
   async getHealth(): Promise<ChronosHealthResponse> {
