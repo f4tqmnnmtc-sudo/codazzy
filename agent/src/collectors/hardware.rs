@@ -55,13 +55,13 @@ impl HardwareCollector {
             .collect()
     }
 
-    fn read_memory(&self) -> MemoryInfo {
+    fn read_memory(&mut self) -> MemoryInfo {
         self.sys.refresh_memory();
         
-        let total = s.total_memory();
-        let used = s.used_memory();
-        let available = s.available_memory();
-        let free = s.free_memory();
+        let total = self.sys.total_memory();
+        let used = self.sys.used_memory();
+        let available = self.sys.available_memory();
+        let free = self.sys.free_memory();
         
         // TODO habrá que darle una vuelta en el futuro recuerd aproblema de exactitud
         let cached = available.saturating_sub(free);
