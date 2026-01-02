@@ -34,8 +34,8 @@ impl Default for TransportConfig {
     }
 }
 
-impl TransportConfig {
-    pub fn from_config(cfg: &ConfigTransport) -> Self {
+impl From<&ConfigTransport> for TransportConfig {
+    fn from(cfg: &ConfigTransport) -> Self {
         Self {
             nats_url: cfg.nats_url.clone(),
             topic_prefix: cfg.topic_prefix.clone(),
@@ -45,6 +45,12 @@ impl TransportConfig {
             batch_size: cfg.batch_size,
             flush_interval: Duration::from_secs(cfg.flush_interval),
         }
+    }
+}
+
+impl TransportConfig {
+    pub fn from_config(cfg: &ConfigTransport) -> Self {
+        Self::from(cfg)
     }
 }
 
@@ -93,26 +99,42 @@ impl NatsTransport {
         Ok(())
     }
 
+    fn is_connected(&self) -> bool {
+        self.client
+            .as_ref()
+            .map(|c| c.connection_state() == async_nats::connection::State::Connected)
+            .unwrap_or(false)
+    }
+
+    fn check_connection_health(&mut self) {
+        if let Some(ref client) = self.client {
+            let state = client.connection_state();
+            if state != async_nats::connection::State::Connected {
+                warn!("NATS caído, buffering...");
+                self.client = None;
+            }
+        }
+    }
+
     pub async fn send_metrics(&mut self, metrics: SystemMetrics) -> Result<(), AgentError> {
+        self.check_connection_health();
+
         if self.client.is_none() {
-            if let Err(e) = self.try_connect().await {
-                debug!("reconexión fallida: {}", e);
+            if let Err(_) = self.try_connect().await {
                 self.add_to_buffer(metrics);
                 return Ok(()); // No es error crítico, tenemos buffer
             }
         }
 
         match self.do_publish(&metrics).await {
-            Ok(_) => {
+            Ok(()) => {
                 self.msgs_sent += 1;
                 
                 if !self.buffer.is_empty() {
-                    debug!("{} msgs pendientes, flushing", self.buffer.len());
                     let _ = self.flush_buffer().await;
                 }
             }
-            Err(e) => {
-                warn!("publish failed: {}", e);
+            Err(_) => {
                 self.add_to_buffer(metrics);
                 self.client = None;
             }
@@ -125,30 +147,35 @@ impl NatsTransport {
         let client = self.client.as_ref()
             .ok_or_else(|| AgentError::transport("no NATS connection"))?;
         
+        if client.connection_state() != async_nats::connection::State::Connected {
+            return Err(AgentError::transport("conexión NATS no disponible"));
+        }
+        
         let payload = rmp_serde::to_vec(metrics)
             .map_err(|e| AgentError::SerializationError(format!("msgpack: {}", e)))?;
         
-        let def_payload = if self.config.compression {
-            self.compress_payload(&payload).unwrap_or(payload)
+        let final_payload = if self.config.compression {
+            self.compress_payload(&payload)
         } else {
             payload
         };
         
         let topic = format!("{}.{}", self.config.topic_prefix, metrics.node_id);
         
-        client.publish(topic, def_payload.into())
+        client.publish(topic, final_payload.into())
             .await
             .map_err(|e| AgentError::transport(format!("publish: {}", e)))
     }
 
     fn add_to_buffer(&mut self, metrics: SystemMetrics) {
         if self.buffer.len() >= self.config.buffer_size {
-            if let Some(dropped) = self.buffer.pop_front() {
+            if let Some(_) = self.buffer.pop_front() {
                 self.msgs_dropped += 1;
-                debug!("buffer full, dropped msg ts={} (total: {})", dropped.timestamp, self.msgs_dropped);
+                warn!("buffer lleno, descartando métrica antigua (perdidas: {})", self.msgs_dropped);
             }
         }
         self.buffer.push_back(metrics);
+        info!("buffering métrica, pendientes: {}", self.buffer.len());
     }
 
     pub async fn flush_buffer(&mut self) -> Result<(), AgentError> {
@@ -156,8 +183,9 @@ impl NatsTransport {
             return Ok(());
         }
         
+        self.check_connection_health();
+        
         let pending = self.buffer.len();
-        debug!("flush: {} pending", pending);
         
         if self.client.is_none() {
             self.try_connect().await?;
@@ -168,13 +196,14 @@ impl NatsTransport {
         
         while let Some(metrics) = self.buffer.pop_front() {
             match self.do_publish(&metrics).await {
-                Ok(_) => {
+                Ok(()) => {
                     sent += 1;
                     self.msgs_sent += 1;
                 }
-                Err(e) => {
-                    debug!("flush error: {}", e);
+                Err(_) => {
                     failed.push(metrics);
+                    failed.extend(self.buffer.drain(..));
+                    self.client = None;
                     break; // si falla uno, fallarán todos
                 }
             }
@@ -187,14 +216,15 @@ impl NatsTransport {
         self.last_flush = Instant::now();
         
         if sent > 0 {
-            info!("flush: {}/{} sent", sent, pending);
+            info!("buffer recuperado: {}/{} enviados", sent, pending);
         }
         
         Ok(())
     }
 
-    fn compress_payload(&self, data: &[u8]) -> Option<Vec<u8>> {
-        Some(lz4_flex::compress_prepend_size(data))
+    #[inline]
+    fn compress_payload(&self, data: &[u8]) -> Vec<u8> {
+        lz4_flex::compress_prepend_size(data)
     }
 
     pub fn should_flush(&self) -> bool {
@@ -208,7 +238,7 @@ impl NatsTransport {
 
     pub fn get_stats(&self) -> TransportStats {
         TransportStats {
-            connected: self.client.is_some(),
+            connected: self.is_connected(),
             buffer_size: self.buffer.len(),
             buffer_capacity: self.config.buffer_size,
             msgs_sent: self.msgs_sent,

@@ -31,3 +31,5 @@ nats/data/
 **get-codazzy.sh
 simulation/
 rss/
+validator/
+testing/
