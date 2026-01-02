@@ -12,7 +12,7 @@ echo "Compilando..."
 export RUSTFLAGS="-C target-feature=+crt-static"
 cargo build --release --target x86_64-unknown-linux-gnu
 
-cp "target/x86_64-unknown-linux-gnu/release/monitoring-agent" "$BUILD_DIR/$PKG/codazzy-agent"
+cp "target/x86_64-unknown-linux-gnu/release/codazzy-agent" "$BUILD_DIR/$PKG/codazzy-agent"
 
 cat > "$BUILD_DIR/$PKG/config.toml" << 'EOF'
 [node]
