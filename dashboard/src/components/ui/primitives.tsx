@@ -65,7 +65,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
 IconButton.displayName = "IconButton";
 
 
-interface InputProps extends ComponentPropsWithoutRef<"input">, InputVariants {}
+interface InputProps extends Omit<ComponentPropsWithoutRef<"input">, "size">, InputVariants {}
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ className, variant, size, ...props }, ref) => (
@@ -93,7 +93,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
 Textarea.displayName = "Textarea";
 
 
-interface SelectProps extends ComponentPropsWithoutRef<"select">, InputVariants {}
+interface SelectProps extends Omit<ComponentPropsWithoutRef<"select">, "size">, InputVariants {}
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
   ({ className, variant, size, children, ...props }, ref) => (
