@@ -6,23 +6,23 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import {
-  useAIReport,
+  useInfraReport,
   REPORT_TYPES,
   getMetricValue,
   type Agent,
   type GeneratedReport,
   type ReportConfig,
-} from "@/hooks/useAIReport";
+} from "@/hooks/useInfraReport";
 import { exportToPDF, exportToMarkdown, exportDebugPrompt } from "@/lib/pdf-export";
 import { Button, Input, Select, Label, Badge, ErrorBanner, Card } from "@/components/ui/primitives";
 
 
-interface AIReportSectionProps {
+interface InfraReportSectionProps {
   agents?: Agent[];
 }
 
-export function AIReportSection({ agents = [] }: AIReportSectionProps) {
-  const report = useAIReport(agents);
+export function InfraReportSection({ agents = [] }: InfraReportSectionProps) {
+  const report = useInfraReport(agents);
   const prevAgentsRef = useRef<string>("");
 
   useEffect(() => {
@@ -208,45 +208,9 @@ interface ConfigOptionsProps {
 }
 
 function ConfigOptions({ config, onUpdate }: ConfigOptionsProps) {
-  const options = [
-    { key: "includeAnomalies", label: "Anomalías detectadas" },
-    { key: "includePredictions", label: "Predicciones generadas" },
-    { key: "includeRecommendations", label: "Recomendaciones" },
-  ] as const;
-
-  return (
-    <>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label>Periodo</Label>
-          <Select value={config.timeRange} onChange={e => onUpdate({ timeRange: e.target.value })}>
-            <option value="1h">Ultima hora</option>
-            <option value="6h">Ultimas 6 horas</option>
-            <option value="24h">Ultimas 24 horas</option>
-            <option value="7d">Ultimos 7 dias</option>
-            <option value="30d">Ultimo mes</option>
-          </Select>
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label>Contexto</Label>
-        <div className="space-y-2">
-          {options.map(opt => (
-            <label key={opt.key} className="flex items-center gap-2 text-[13px] text-white cursor-pointer">
-              <input
-                type="checkbox"
-                checked={config[opt.key]}
-                onChange={e => onUpdate({ [opt.key]: e.target.checked })}
-                className="rounded border-[#2a3548] bg-[#0a0e17] text-emerald-500 focus:ring-emerald-500"
-              />
-              {opt.label}
-            </label>
-          ))}
-        </div>
-      </div>
-    </>
-  );
+  void config;
+  void onUpdate;
+  return null;
 }
 
 

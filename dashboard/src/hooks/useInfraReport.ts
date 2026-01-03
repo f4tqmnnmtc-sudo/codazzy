@@ -136,7 +136,7 @@ function reducer(state: State, action: Action): State {
   }
 }
 
-export function useAIReport(initialAgents: Agent[] = []) {
+export function useInfraReport(initialAgents: Agent[] = []) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
   useEffect(() => {

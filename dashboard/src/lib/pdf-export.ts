@@ -1,4 +1,4 @@
-import type { GeneratedReport } from "@/hooks/useAIReport";
+import type { GeneratedReport } from "@/hooks/useInfraReport";
 
 export async function exportToPDF(report: GeneratedReport) {
   if (!report?.content) return;

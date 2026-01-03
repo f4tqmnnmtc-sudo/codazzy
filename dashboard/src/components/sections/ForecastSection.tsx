@@ -18,16 +18,16 @@ import { useForecast } from "@/hooks/useForecast";
 import { Button, Select, Badge, Spinner, Card, ErrorBanner } from "@/components/ui/primitives";
 
 
-export function PredictiveModelsSection() {
-  const pm = useForecast();
+export function ForecastSection() {
+  const forecast = useForecast();
 
   useEffect(() => {
-    if (pm.selectedServer && pm.activeMetric) {
-      pm.loadHistoricalData();
+    if (forecast.selectedServer && forecast.activeMetric) {
+      forecast.loadHistoricalData();
     }
-  }, [pm.selectedServer, pm.activeMetric, pm.timeRange, pm.loadHistoricalData]);
+  }, [forecast.selectedServer, forecast.activeMetric, forecast.timeRange, forecast.loadHistoricalData]);
 
-  if (pm.loading && pm.servers.length === 0) {
+  if (forecast.loading && forecast.servers.length === 0) {
     return (
       <div className="flex items-center justify-center p-8">
         <Spinner size="md" />
@@ -39,41 +39,38 @@ export function PredictiveModelsSection() {
   return (
     <div className="space-y-4">
       {/* Chronos Status */}
-      <ChronosStatus health={pm.chronosHealth} />
+      <ChronosStatus health={forecast.chronosHealth} />
 
-      {/* Server & Metric Selection */}
       <div className="grid grid-cols-2 gap-4">
         <ServerSelector
-          servers={pm.servers}
-          selectedServer={pm.selectedServer}
-          onSelect={pm.selectServer}
-          getServerInfo={pm.getServerInfo}
+          servers={forecast.servers}
+          selectedServer={forecast.selectedServer}
+          onSelect={forecast.selectServer}
+          getServerInfo={forecast.getServerInfo}
         />
 
         <MetricSelector
-          metrics={pm.metrics}
-          selectedMetrics={pm.selectedMetrics}
-          serverInfo={pm.getServerInfo(pm.selectedServer)}
-          onToggle={pm.toggleMetric}
+          metrics={forecast.metrics}
+          selectedMetrics={forecast.selectedMetrics}
+          serverInfo={forecast.getServerInfo(forecast.selectedServer)}
+          onToggle={forecast.toggleMetric}
         />
       </div>
 
-      {/* Active Metric Tabs */}
-      {pm.selectedMetrics.length > 0 && (
+      {forecast.selectedMetrics.length > 0 && (
         <MetricTabs
-          metrics={pm.selectedMetrics}
-          activeMetric={pm.activeMetric}
-          getMetricInfo={pm.getMetricInfo}
-          onSelect={pm.setActiveMetric}
+          metrics={forecast.selectedMetrics}
+          activeMetric={forecast.activeMetric}
+          getMetricInfo={forecast.getMetricInfo}
+          onSelect={forecast.setActiveMetric}
         />
       )}
 
-      {/* Chart Section */}
-      {pm.activeMetric && (
-        <ChartSection
-          pm={pm}
-          onExportCSV={pm.exportToCSV}
-          onExportJSON={pm.exportToJSON}
+      {forecast.activeMetric && (
+        <TimeSeriesPanel
+          forecast={forecast}
+          onExportCSV={forecast.exportToCSV}
+          onExportJSON={forecast.exportToJSON}
         />
       )}
     </div>
@@ -239,34 +236,32 @@ function MetricTabs({ metrics, activeMetric, getMetricInfo, onSelect }: MetricTa
 }
 
 
-interface ChartSectionProps {
-  pm: ReturnType<typeof useForecast>;
+interface TimeSeriesPanelProps {
+  forecast: ReturnType<typeof useForecast>;
   onExportCSV: () => void;
   onExportJSON: () => void;
 }
 
-function ChartSection({ pm, onExportCSV, onExportJSON }: ChartSectionProps) {
-  const serverInfo = pm.getServerInfo(pm.selectedServer);
-  const metricInfo = pm.getMetricInfo(pm.activeMetric);
+function TimeSeriesPanel({ forecast, onExportCSV, onExportJSON }: TimeSeriesPanelProps) {
+  const serverInfo = forecast.getServerInfo(forecast.selectedServer);
+  const metricInfo = forecast.getMetricInfo(forecast.activeMetric);
   const canGenerate =
-    !pm.generating && pm.chronosHealth?.model_loaded && pm.historicalData.length >= 10;
+    !forecast.generating && forecast.chronosHealth?.model_loaded && forecast.historicalData.length >= 10;
 
   return (
     <Card variant="elevated" padding="md">
-      {/* Header */}
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h4 className="text-[14px] font-medium text-white">
-            {metricInfo?.metric_name || pm.activeMetric} - {serverInfo?.server_name}
+            {metricInfo?.metric_name || forecast.activeMetric} - {serverInfo?.server_name}
           </h4>
           <p className="text-[11px] text-[#8b95a5]">Análisis predictivo basado en datos históricos</p>
         </div>
-        {pm.forecastData && <Badge variant="success" size="sm">Predicción Activa</Badge>}
+        {forecast.forecastData && <Badge variant="success" size="sm">Predicción Activa</Badge>}
       </div>
 
-      {/* Controls */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <Select value={pm.timeRange} onChange={e => pm.setTimeRange(e.target.value)} size="sm" className="w-auto">
+        <Select value={forecast.timeRange} onChange={e => forecast.setTimeRange(e.target.value)} size="sm" className="w-auto">
           <optgroup label="Corto plazo">
             <option value="24h">24 Horas</option>
             <option value="7d">7 Días</option>
@@ -283,8 +278,8 @@ function ChartSection({ pm, onExportCSV, onExportJSON }: ChartSectionProps) {
         </Select>
 
         <Select
-          value={pm.aggregationMethod}
-          onChange={e => pm.setAggregationMethod(e.target.value as "mean" | "median" | "max" | "min")}
+          value={forecast.aggregationMethod}
+          onChange={e => forecast.setAggregationMethod(e.target.value as "mean" | "median" | "max" | "min")}
           size="sm"
           className="w-auto"
         >
@@ -295,8 +290,8 @@ function ChartSection({ pm, onExportCSV, onExportJSON }: ChartSectionProps) {
         </Select>
 
         <Select
-          value={pm.forecastHorizon}
-          onChange={e => pm.setForecastHorizon(e.target.value)}
+          value={forecast.forecastHorizon}
+          onChange={e => forecast.setForecastHorizon(e.target.value)}
           size="sm"
           className="w-auto"
         >
@@ -321,27 +316,25 @@ function ChartSection({ pm, onExportCSV, onExportJSON }: ChartSectionProps) {
         <Button
           variant="primary"
           size="sm"
-          onClick={pm.generateForecast}
+          onClick={forecast.generateForecast}
           disabled={!canGenerate}
-          loading={pm.generating}
+          loading={forecast.generating}
         >
-          {pm.generating ? "Generando..." : "Predecir"}
+          {forecast.generating ? "Generando..." : "Predecir"}
         </Button>
 
-        {pm.historicalData.length > 0 && (
-          <span className="text-[11px] text-[#8b95a5]">{pm.historicalData.length} puntos disponibles</span>
+        {forecast.historicalData.length > 0 && (
+          <span className="text-[11px] text-[#8b95a5]">{forecast.historicalData.length} puntos disponibles</span>
         )}
       </div>
 
-      {/* Error */}
-      {pm.error && <ErrorBanner message={pm.error} className="mb-4" />}
+      {forecast.error && <ErrorBanner message={forecast.error} className="mb-4" />}
 
-      {/* Rechart */}
-      <ChartDisplay
-        chartData={pm.chartData}
-        forecastData={pm.forecastData}
-        loading={pm.loading}
-        historicalDataLength={pm.historicalData.length}
+      <HistoricalChart
+        chartData={forecast.chartData}
+        forecastData={forecast.forecastData}
+        loading={forecast.loading}
+        historicalDataLength={forecast.historicalData.length}
       />
 
       {/* Mostrar estadisticas forecast y la generación de CSV y JSON */}
@@ -359,14 +352,45 @@ function ChartSection({ pm, onExportCSV, onExportJSON }: ChartSectionProps) {
 }
 
 
-interface ChartDisplayProps {
+interface HistoricalChartProps {
   chartData: ReturnType<typeof useForecast>["chartData"];
   forecastData: ReturnType<typeof useForecast>["forecastData"];
   loading: boolean;
   historicalDataLength: number;
 }
 
-function ChartDisplay({ chartData, forecastData, loading, historicalDataLength }: ChartDisplayProps) {
+const CHART_CONFIG = {
+  colors: {
+    primary: "#3b82f6",
+    forecast: "#2cd400",
+    confidence: "#f59e0b",
+    confidenceBand: "#22c55e",
+    grid: "#2a3548",
+    text: "#8b95a5",
+  },
+  dimensions: {
+    height: 300,
+    margin: { top: 10, right: 30, left: 0, bottom: 0 },
+  },
+  stroke: {
+    historical: 2,
+    forecast: 2,
+    confidence: 1,
+  },
+} as const;
+
+const tooltipStyle = {
+  contentStyle: {
+    backgroundColor: "#131a26",
+    border: "1px solid #2a3548",
+    borderRadius: "8px",
+    fontSize: "11px",
+  },
+  labelStyle: { color: "#8b95a5" },
+};
+
+
+function HistoricalChart({ chartData, forecastData, loading, historicalDataLength }: HistoricalChartProps) {
   if (loading) {
     return (
       <div className="flex h-[300px] items-center justify-center">
@@ -426,30 +450,22 @@ function ChartDisplay({ chartData, forecastData, loading, historicalDataLength }
   return (
     <div className="h-[300px]">
       <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#2a3548" />
+        <ComposedChart data={chartData} margin={CHART_CONFIG.dimensions.margin}>
+          <CartesianGrid strokeDasharray="3 3" stroke={CHART_CONFIG.colors.grid} />
           <XAxis
             dataKey="timeLabel"
-            tick={{ fill: "#8b95a5", fontSize: 10 }}
-            tickLine={{ stroke: "#2a3548" }}
-            axisLine={{ stroke: "#2a3548" }}
+            tick={{ fill: CHART_CONFIG.colors.text, fontSize: 10 }}
+            tickLine={{ stroke: CHART_CONFIG.colors.grid }}
+            axisLine={{ stroke: CHART_CONFIG.colors.grid }}
             interval="preserveStartEnd"
           />
           <YAxis
-            tick={{ fill: "#8b95a5", fontSize: 10 }}
-            tickLine={{ stroke: "#2a3548" }}
-            axisLine={{ stroke: "#2a3548" }}
+            tick={{ fill: CHART_CONFIG.colors.text, fontSize: 10 }}
+            tickLine={{ stroke: CHART_CONFIG.colors.grid }}
+            axisLine={{ stroke: CHART_CONFIG.colors.grid }}
             domain={["dataMin - 5", "dataMax + 5"]}
           />
-          <Tooltip
-            contentStyle={{
-              backgroundColor: "#131a26",
-              border: "1px solid #2a3548",
-              borderRadius: "8px",
-              fontSize: "11px",
-            }}
-            labelStyle={{ color: "#8b95a5" }}
-          />
+          <Tooltip {...tooltipStyle} />
           <Legend wrapperStyle={{ fontSize: "11px" }} />
 
           {forecastData && (
@@ -457,8 +473,8 @@ function ChartDisplay({ chartData, forecastData, loading, historicalDataLength }
               <Line
                 type="monotone"
                 dataKey="confidence_90"
-                stroke="#f59e0b"
-                strokeWidth={1}
+                stroke={CHART_CONFIG.colors.confidence}
+                strokeWidth={CHART_CONFIG.stroke.confidence}
                 strokeDasharray="3 3"
                 dot={false}
                 name="Límite 90%"
@@ -467,8 +483,8 @@ function ChartDisplay({ chartData, forecastData, loading, historicalDataLength }
               <Line
                 type="monotone"
                 dataKey="confidence_10"
-                stroke="#f59e0b"
-                strokeWidth={1}
+                stroke={CHART_CONFIG.colors.confidence}
+                strokeWidth={CHART_CONFIG.stroke.confidence}
                 strokeDasharray="3 3"
                 dot={false}
                 name="Límite 10%"
@@ -477,8 +493,8 @@ function ChartDisplay({ chartData, forecastData, loading, historicalDataLength }
               <Line
                 type="monotone"
                 dataKey="forecast_high"
-                stroke="#22c55e"
-                strokeWidth={1}
+                stroke={CHART_CONFIG.colors.confidenceBand}
+                strokeWidth={CHART_CONFIG.stroke.confidence}
                 strokeOpacity={0.6}
                 dot={false}
                 name="Límite 80%"
@@ -487,8 +503,8 @@ function ChartDisplay({ chartData, forecastData, loading, historicalDataLength }
               <Line
                 type="monotone"
                 dataKey="forecast_low"
-                stroke="#22c55e"
-                strokeWidth={1}
+                stroke={CHART_CONFIG.colors.confidenceBand}
+                strokeWidth={CHART_CONFIG.stroke.confidence}
                 strokeOpacity={0.6}
                 dot={false}
                 name="Límite 20%"
@@ -498,7 +514,7 @@ function ChartDisplay({ chartData, forecastData, loading, historicalDataLength }
                 type="monotone"
                 dataKey="forecast_high"
                 stroke="none"
-                fill="#22c55e"
+                fill={CHART_CONFIG.colors.confidenceBand}
                 fillOpacity={0.15}
                 name="Intervalo confianza"
               />
@@ -508,18 +524,19 @@ function ChartDisplay({ chartData, forecastData, loading, historicalDataLength }
           <Line
             type="monotone"
             dataKey="historical"
-            stroke="#3b82f6"
-            strokeWidth={2}
+            stroke={CHART_CONFIG.colors.primary}
+            strokeWidth={CHART_CONFIG.stroke.historical}
             dot={false}
             name="Datos Históricos"
             connectNulls={false}
           />
+
           {forecastData && (
             <Line
               type="monotone"
               dataKey="forecast_median"
-              stroke="#2cd400"
-              strokeWidth={2}
+              stroke={CHART_CONFIG.colors.forecast}
+              strokeWidth={CHART_CONFIG.stroke.forecast}
               strokeDasharray="5 5"
               dot={false}
               name="Predicción"
@@ -544,7 +561,6 @@ interface ForecastStatsProps {
 function ForecastStats({ forecastData, aggregationMethod, metricUnit, onExportCSV, onExportJSON }: ForecastStatsProps) {
   return (
     <div className="mt-4 grid grid-cols-3 gap-4">
-      {/* Processing Info */}
       <Card variant="default" padding="sm">
         <h5 className="mb-2 text-[11px] uppercase text-[#8b95a5]">Procesamiento</h5>
         <div className="space-y-1 text-[11px]">
@@ -557,7 +573,6 @@ function ForecastStats({ forecastData, aggregationMethod, metricUnit, onExportCS
         </div>
       </Card>
 
-      {/* Analysis */}
       <Card variant="default" padding="sm">
         <h5 className="mb-2 text-[11px] uppercase text-[#8b95a5]">Análisis & Calidad</h5>
         {forecastData.analysis ? (
@@ -601,7 +616,6 @@ function ForecastStats({ forecastData, aggregationMethod, metricUnit, onExportCS
         )}
       </Card>
 
-      {/* Comparison & Export */}
       <div className="space-y-3">
         <Card variant="default" padding="sm">
           <h5 className="mb-2 text-[11px] uppercase text-[#8b95a5]">Comparación</h5>
