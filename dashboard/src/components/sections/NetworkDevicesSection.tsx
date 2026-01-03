@@ -1,9 +1,21 @@
 "use client";
+
+import { useReducer, useRef, useTransition } from "react";
+import { Trash2 } from "lucide-react";
 import { getApiBaseUrl } from "@/lib/api-config";
+import { cn } from "@/lib/utils";
+import {
+  Button,
+  Input,
+  Select,
+  Label,
+  Badge,
+  ErrorBanner,
+  EmptyState,
+} from "@/components/ui/primitives";
+import { ConfirmDialog } from "@/components/ui/Modal";
 
-import { useState, useEffect } from "react";
-
-interface NetworkDevice {
+interface TelecoDevice {
   id: string;
   device_id: string;
   device_name: string;
@@ -19,376 +31,341 @@ interface NetworkDevice {
   tags?: string[];
 }
 
-interface DeviceFormData {
+type FormState = {
   name: string;
   type: string;
   ip: string;
   protocol: string;
-  snmpCommunity?: string;
-  snmpVersion?: "v2c" | "v3";
-  snmpPort?: number;
-  httpEndpoint?: string;
-  mqttTopic?: string;
+  snmpCommunity: string;
+  snmpVersion: "v2c" | "v3";
+  snmpPort: number;
   pollInterval: number;
+};
+
+type FormAction =
+  | { type: "SET"; field: keyof FormState; value: string | number }
+  | { type: "RESET" };
+
+const INITIAL_FORM: FormState = {
+  name: "",
+  type: "router",
+  ip: "",
+  protocol: "snmp",
+  snmpCommunity: "public",
+  snmpVersion: "v2c",
+  snmpPort: 161,
+  pollInterval: 60,
+};
+
+const DEVICE_TYPES = [
+  { id: "router", label: "Router", badge: "R" },
+  { id: "switch", label: "Switch", badge: "S" },
+  { id: "firewall", label: "Firewall", badge: "F" },
+  { id: "ap", label: "AP", badge: "A" },
+  { id: "other", label: "Otro", badge: "O" },
+] as const;
+
+const STATUS_COLORS: Record<string, string> = {
+  online: "bg-emerald-500",
+  warning: "bg-amber-500",
+  maintenance: "bg-amber-500",
+  offline: "bg-red-500",
+  error: "bg-red-500",
+};
+
+function formReducer(state: FormState, action: FormAction): FormState {
+  if (action.type === "RESET") return INITIAL_FORM;
+  return { ...state, [action.field]: action.value };
 }
 
-const getApiBase = () => getApiBaseUrl();
+function resolveDeviceBadge(tags?: string[]): string {
+  if (!tags?.length) return "O";
+  const type = tags[0]?.toLowerCase();
+  return DEVICE_TYPES.find((d) => d.id === type)?.badge ?? "O";
+}
 
 export function NetworkDevicesSection() {
-  const [devices, setDevices] = useState<NetworkDevice[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [formData, setFormData] = useState<DeviceFormData>({
-    name: "",
-    type: "router",
-    ip: "",
-    protocol: "snmp",
-    snmpCommunity: "public",
-    snmpVersion: "v2c",
-    snmpPort: 161,
-    pollInterval: 60,
-  });
-  const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [devices, setDevices] = useReducer(
+    (_: TelecoDevice[], next: TelecoDevice[]) => next,
+    []
+  );
+  const [form, dispatch] = useReducer(formReducer, INITIAL_FORM);
+  const [showForm, toggleForm] = useReducer((s: boolean) => !s, false);
+  const [deleteTarget, setDeleteTarget] = useReducer(
+    (_: string | null, next: string | null) => next,
+    null
+  );
+  const [error, setError] = useReducer(
+    (_: string | null, next: string | null) => next,
+    null
+  );
 
-  const deviceTypes = [
-    { id: "router", name: "Router", icon: "R" },
-    { id: "switch", name: "Switch", icon: "S" },
-    { id: "firewall", name: "Firewall", icon: "F" },
-    { id: "ap", name: "AP", icon: "A" },
-    { id: "other", name: "Otro", icon: "O" },
-  ];
+  const [isPending, startTransition] = useTransition();
+  const hasLoaded = useRef(false);
 
-  useEffect(() => {
-    loadDevices();
-  }, []);
+  if (!hasLoaded.current) {
+    hasLoaded.current = true;
+    fetch(`${getApiBaseUrl()}/api/v1/teleco/devices`)
+      .then((res) => (res.ok ? res.json() : { devices: [] }))
+      .then((data) => setDevices(data.devices || []))
+      .catch(() => setDevices([]));
+  }
 
-  const loadDevices = async () => {
-    setIsLoading(true);
-    try {
-      const res = await fetch(`${getApiBase()}/api/v1/teleco/devices`);
-      if (res.ok) {
-        const data = await res.json();
-        setDevices(data.devices || []);
-      } else {
-        setDevices([]);
-      }
-    } catch (err) {
-      console.error("Error loading network devices:", err);
-      setDevices([]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const addDevice = async () => {
-    if (!formData.name || !formData.ip) {
+  async function submitDevice() {
+    if (!form.name || !form.ip) {
       setError("Nombre e IP son requeridos");
       return;
     }
 
-    setIsSubmitting(true);
     setError(null);
 
-    // Mapear tipo del frontend al formato del gateway
-    const deviceTypeMap: Record<string, string> = {
-      router: "standard",
-      switch: "standard",
-      firewall: "standard",
-      ap: "standard",
-      other: "standard",
-    };
-
-    // Mapear protocolo del frontend al formato del gateway
-    const protocolMap: Record<string, string> = {
-      snmp: "snmp",
-      http: "http_api",
-      mqtt: "mqtt",
-    };
-
-    // Construir credentials para SNMP
-    const credentials: Record<string, string> = {};
-    if (formData.protocol === "snmp") {
-      credentials.community = formData.snmpCommunity || "public";
-      credentials.version = formData.snmpVersion || "v2c";
-    }
-
-    // Construir el request en el formato que espera el gateway
-    const requestBody = {
-      device_id: formData.name.toLowerCase().replace(/\s+/g, "-"),
-      device_type: deviceTypeMap[formData.type] || "standard",
-      device_name: formData.name,
+    const payload = {
+      device_id: form.name.toLowerCase().replace(/\s+/g, "-"),
+      device_type: "standard",
+      device_name: form.name,
       connection_config: {
-        protocol: protocolMap[formData.protocol] || "snmp",
-        host: formData.ip,
-        port: formData.protocol === "snmp" ? (formData.snmpPort || 161) : 80,
-        credentials: credentials,
+        protocol: form.protocol === "http" ? "http_api" : form.protocol,
+        host: form.ip,
+        port: form.protocol === "snmp" ? form.snmpPort : 80,
+        credentials:
+          form.protocol === "snmp"
+            ? { community: form.snmpCommunity, version: form.snmpVersion }
+            : {},
         additional_params: {},
         timeout_seconds: 30,
         retry_attempts: 3,
       },
       metrics_config: {
         enabled_metrics: ["cpu", "memory", "interfaces", "uptime"],
-        collection_interval: formData.pollInterval,
+        collection_interval: form.pollInterval,
         custom_oids: {},
         api_endpoints: [],
         ssh_commands: [],
       },
-      tags: [formData.type],
+      tags: [form.type],
     };
 
-    try {
-      const res = await fetch(`${getApiBase()}/api/v1/teleco/devices`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
+    startTransition(async () => {
+      try {
+        const res = await fetch(`${getApiBaseUrl()}/api/v1/teleco/devices`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
 
-      if (res.ok) {
-        await loadDevices();
-        setShowAddForm(false);
-        resetForm();
-      } else {
-        const errData = await res.json();
-        setError(errData.message || errData.detail || "Error agregando dispositivo");
+        if (res.ok) {
+          const refreshRes = await fetch(`${getApiBaseUrl()}/api/v1/teleco/devices`);
+          if (refreshRes.ok) {
+            const data = await refreshRes.json();
+            setDevices(data.devices || []);
+          }
+          dispatch({ type: "RESET" });
+          toggleForm();
+        } else {
+          const err = await res.json().catch(() => ({}));
+          setError(err.message || err.detail || "Error agregando dispositivo");
+        }
+      } catch {
+        setError("Error de conexión con el servidor");
       }
-    } catch (err) {
-      setError("Error de conexion con el servidor");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const deleteDevice = async (id: string) => {
-    if (!confirm("Eliminar este dispositivo?")) return;
-
-    try {
-      const res = await fetch(`${getApiBase()}/api/v1/teleco/devices/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        setDevices((prev) => prev.filter((d) => d.id !== id));
-      }
-    } catch (err) {
-      console.error("Error deleting device:", err);
-    }
-  };
-
-  const resetForm = () => {
-    setFormData({
-      name: "",
-      type: "router",
-      ip: "",
-      protocol: "snmp",
-      snmpCommunity: "public",
-      snmpVersion: "v2c",
-      snmpPort: 161,
-      pollInterval: 60,
     });
-  };
+  }
 
-  const getStatusColor = (status: string) => {
-    const statusLower = status?.toLowerCase() || "";
-    switch (statusLower) {
-      case "online":
-        return "bg-emerald-500";
-      case "warning":
-      case "maintenance":
-        return "bg-amber-500";
-      case "offline":
-      case "error":
-        return "bg-red-500";
-      default:
-        return "bg-gray-500";
+  async function removeDevice() {
+    if (!deleteTarget) return;
+
+    try {
+      const res = await fetch(
+        `${getApiBaseUrl()}/api/v1/teleco/devices/${deleteTarget}`,
+        { method: "DELETE" }
+      );
+      if (res.ok) {
+        setDevices(devices.filter((d) => d.id !== deleteTarget));
+      }
+    } catch {
+      setError("Error eliminando dispositivo");
+    } finally {
+      setDeleteTarget(null);
     }
-  };
+  }
 
-  const getDeviceTypeIcon = (tags?: string[]) => {
-    if (!tags || tags.length === 0) return "O";
-    const type = tags[0]?.toLowerCase();
-    const typeMap: Record<string, string> = {
-      router: "R",
-      switch: "S",
-      firewall: "F",
-      ap: "A",
-    };
-    return typeMap[type] || "O";
-  };
-
-  const inputClass =
-    "w-full px-3 py-2 rounded-lg border border-[#2a3548] bg-[#0a0e17] text-[13px] text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 placeholder-[#8b95a5]";
-  const labelClass = "block text-[12px] text-[#8b95a5] uppercase tracking-wide mb-1.5";
+  const targetDevice = devices.find((d) => d.id === deleteTarget);
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <header className="flex items-center justify-between">
         <h4 className="text-[14px] font-medium text-white">
           Dispositivos de Red ({devices.length})
         </h4>
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-[#0a0e17] text-[12px] font-medium rounded-lg transition-colors"
-        >
-          {showAddForm ? "Cancelar" : "+ Agregar"}
-        </button>
-      </div>
+        <Button variant={showForm ? "secondary" : "primary"} size="sm" onClick={toggleForm}>
+          {showForm ? "Cancelar" : "+ Agregar"}
+        </Button>
+      </header>
 
-      {/* Add Form */}
-      {showAddForm && (
+      {showForm && (
         <div className="p-4 rounded-lg bg-[#131a26] border border-[#2a3548] space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelClass}>Nombre</label>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              <Label>Nombre</Label>
+              <Input
+                value={form.name}
+                onChange={(e) => dispatch({ type: "SET", field: "name", value: e.target.value })}
                 placeholder="Router Principal"
-                className={inputClass}
               />
             </div>
             <div>
-              <label className={labelClass}>IP</label>
-              <input
-                type="text"
-                value={formData.ip}
-                onChange={(e) => setFormData({ ...formData, ip: e.target.value })}
+              <Label>IP</Label>
+              <Input
+                value={form.ip}
+                onChange={(e) => dispatch({ type: "SET", field: "ip", value: e.target.value })}
                 placeholder="192.168.1.1"
-                className={inputClass}
               />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelClass}>Tipo</label>
-              <select
-                value={formData.type}
-                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                className={inputClass}
+              <Label>Tipo</Label>
+              <Select
+                value={form.type}
+                onChange={(e) => dispatch({ type: "SET", field: "type", value: e.target.value })}
               >
-                {deviceTypes.map((t) => (
+                {DEVICE_TYPES.map((t) => (
                   <option key={t.id} value={t.id}>
-                    {t.name}
+                    {t.label}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
             <div>
-              <label className={labelClass}>Protocolo</label>
-              <select
-                value={formData.protocol}
-                onChange={(e) => setFormData({ ...formData, protocol: e.target.value })}
-                className={inputClass}
+              <Label>Protocolo</Label>
+              <Select
+                value={form.protocol}
+                onChange={(e) => dispatch({ type: "SET", field: "protocol", value: e.target.value })}
               >
                 <option value="snmp">SNMP</option>
                 <option value="http">HTTP/REST</option>
                 <option value="mqtt">MQTT</option>
-              </select>
+              </Select>
             </div>
           </div>
 
-          {formData.protocol === "snmp" && (
+          {form.protocol === "snmp" && (
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className={labelClass}>Community</label>
-                <input
-                  type="text"
-                  value={formData.snmpCommunity}
-                  onChange={(e) => setFormData({ ...formData, snmpCommunity: e.target.value })}
+                <Label>Community</Label>
+                <Input
+                  value={form.snmpCommunity}
+                  onChange={(e) =>
+                    dispatch({ type: "SET", field: "snmpCommunity", value: e.target.value })
+                  }
                   placeholder="public"
-                  className={inputClass}
                 />
               </div>
               <div>
-                <label className={labelClass}>Version</label>
-                <select
-                  value={formData.snmpVersion}
-                  onChange={(e) => setFormData({ ...formData, snmpVersion: e.target.value as "v2c" | "v3" })}
-                  className={inputClass}
+                <Label>Versión</Label>
+                <Select
+                  value={form.snmpVersion}
+                  onChange={(e) =>
+                    dispatch({ type: "SET", field: "snmpVersion", value: e.target.value })
+                  }
                 >
                   <option value="v2c">v2c</option>
                   <option value="v3">v3</option>
-                </select>
+                </Select>
               </div>
             </div>
           )}
 
           <div>
-            <label className={labelClass}>Intervalo (segundos)</label>
-            <input
+            <Label>Intervalo (segundos)</Label>
+            <Input
               type="number"
-              value={formData.pollInterval}
-              onChange={(e) => setFormData({ ...formData, pollInterval: parseInt(e.target.value) })}
+              value={form.pollInterval}
+              onChange={(e) =>
+                dispatch({ type: "SET", field: "pollInterval", value: parseInt(e.target.value) || 60 })
+              }
               min={10}
               max={3600}
-              className={inputClass}
             />
           </div>
 
-          {error && (
-            <div className="p-2 rounded bg-red-500/10 border border-red-500/30">
-              <p className="text-[12px] text-red-400">{error}</p>
-            </div>
-          )}
+          {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 
-          <button
-            onClick={addDevice}
-            disabled={isSubmitting}
-            className="w-full py-2 bg-emerald-500 hover:bg-emerald-600 text-[#0a0e17] text-[13px] font-medium rounded-lg disabled:opacity-50 transition-colors"
+          <Button
+            variant="primary"
+            onClick={submitDevice}
+            loading={isPending}
+            className="w-full"
           >
-            {isSubmitting ? "Agregando..." : "Agregar Dispositivo"}
-          </button>
+            Agregar Dispositivo
+          </Button>
         </div>
       )}
 
-      {/* Devices List */}
-      {isLoading ? (
-        <div className="text-center py-8 text-[#8b95a5]">Cargando dispositivos...</div>
-      ) : devices.length === 0 ? (
-        <div className="text-center py-8 text-[#8b95a5]">
-          No hay dispositivos de red configurados
-        </div>
+      {devices.length === 0 ? (
+        <EmptyState
+          title="Sin dispositivos"
+          description="No hay dispositivos de red configurados"
+        />
       ) : (
-        <div className="space-y-2">
+        <ul className="space-y-2">
           {devices.map((device) => (
-            <div
+            <li
               key={device.id}
               className="p-3 rounded-lg bg-[#0a0e17] border border-[#2a3548] hover:border-[#3a4558] transition-colors"
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
                   <span className="w-8 h-8 rounded-lg bg-[#2a3548] flex items-center justify-center text-[12px] font-bold text-emerald-400">
-                    {getDeviceTypeIcon(device.tags)}
+                    {resolveDeviceBadge(device.tags)}
                   </span>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-[13px] font-medium text-white">{device.device_name}</span>
-                      <span className={`w-2 h-2 rounded-full ${getStatusColor(device.status)}`} />
+                      <span className="text-[13px] font-medium text-white">
+                        {device.device_name}
+                      </span>
+                      <span
+                        className={cn(
+                          "w-2 h-2 rounded-full",
+                          STATUS_COLORS[device.status?.toLowerCase()] ?? "bg-gray-500"
+                        )}
+                      />
                     </div>
                     <div className="text-[11px] text-[#8b95a5]">
-                      {device.connection_config?.host}:{device.connection_config?.port} | {device.connection_config?.protocol?.toUpperCase()}
+                      {device.connection_config?.host}:{device.connection_config?.port} |{" "}
+                      {device.connection_config?.protocol?.toUpperCase()}
                     </div>
                   </div>
                 </div>
                 <button
-                  onClick={() => deleteDevice(device.id)}
+                  type="button"
+                  onClick={() => setDeleteTarget(device.id)}
                   className="p-1.5 text-[#8b95a5] hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                  </svg>
+                  <Trash2 className="w-4 h-4" />
                 </button>
               </div>
 
               {device.metrics_count !== undefined && device.metrics_count > 0 && (
-                <div className="mt-3 flex gap-4 text-[11px] text-[#8b95a5]">
-                  <span>Cantidad de datos recolectados: {device.metrics_count}</span>
+                <div className="mt-3 text-[11px] text-[#8b95a5]">
+                  Métricas recolectadas: {device.metrics_count}
                 </div>
               )}
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={removeDevice}
+        title="Eliminar dispositivo"
+        description={`¿Eliminar ${targetDevice?.device_name || "este dispositivo"}?`}
+        variant="danger"
+        confirmText="Eliminar"
+      />
     </div>
   );
 }

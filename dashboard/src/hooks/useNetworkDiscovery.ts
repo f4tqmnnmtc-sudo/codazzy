@@ -38,6 +38,16 @@ export function useNetworkDiscovery() {
 
   useEffect(() => {
     mountedRef.current = true;
+    
+    getDiscoveredDevices().then((data) => {
+      if (mountedRef.current) {
+        setState((s) => ({
+          ...s,
+          devices: (data.devices || []) as DiscoveredDevice[],
+        }));
+      }
+    });
+
     return () => {
       mountedRef.current = false;
       if (pollRef.current) clearInterval(pollRef.current);

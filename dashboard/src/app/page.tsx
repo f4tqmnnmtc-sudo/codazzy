@@ -6,8 +6,8 @@ import { Accordion, SidePanel, ServerDetailPanel, TopHeader, MiniSidebar } from 
 import { 
   AgentInstallSection, 
   ConfigEditorSection, 
-  PredictiveModelsSection, 
-  AIReportSection, 
+  ForecastSection, 
+  InfraReportSection, 
   NetworkDevicesSection, 
   NetworkDiscoverySection, 
   AlertsThresholdsSection 
@@ -300,7 +300,7 @@ export default function DashboardPage() {
         onClose={() => dispatch({ type: 'TOGGLE_PANEL', panel: 'prediction', value: false })} 
         title="Chronos"
       >
-        <PredictiveModelsSection />
+        <ForecastSection />
       </SidePanel>
 
       <SidePanel 
@@ -308,7 +308,7 @@ export default function DashboardPage() {
         onClose={() => dispatch({ type: 'TOGGLE_PANEL', panel: 'report', value: false })} 
         title="Generar Informe"
       >
-        <AIReportSection agents={agents} />
+        <InfraReportSection agents={agents} />
       </SidePanel>
     </div>
   );

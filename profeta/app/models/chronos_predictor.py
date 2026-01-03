@@ -103,6 +103,7 @@ class ChronosPredictor:
              "model_info": {"model_name": s.model_name, "model_type": "t5", "device": s.device, "torch_dtype": str(s.torch_dtype), "context_length": len(c), "prediction_length": pl, "num_samples": ns, "num_samples_requested": o, "num_samples_adjusted": ns < o}, "processing_time": time.time() - t0}
         ns < o and r.update(warning=f"Sim reducido {o} -> {ns}"); return r
 
+    # Van en grupos, es más eficiente que individualmente
     def batch(s, ctxs, pl=None, ns=None, cl=None):
         pl, ns, lv = pl or cfg.pred_len, ns or cfg.sim, cl or cfg.conf; o = []
         for i, c in enumerate(ctxs):
@@ -110,6 +111,7 @@ class ChronosPredictor:
             except Exception as e: log.error(f"Batch[{i}]: {e}"); o.append({"error": str(e), "series_index": i})
         return o
 
+    # Para evitar errores en el dashboard
     def info(s):
         if not s.is_loaded: return {"error": "Modelo no cargado"}
         b = {"model_name": s.model_name, "model_type": s.model_type, "device": s.device, "torch_dtype": str(s.torch_dtype), "cuda_available": torch.cuda.is_available(), "model_loaded": True}
@@ -118,6 +120,7 @@ class ChronosPredictor:
         s.model_type == "t5" and b.update(supports_num_samples=True, supports_covariates=False)
         return b
 
+    # Clear cache
     def clear_cache(s):
         if not torch.cuda.is_available(): return {"status": "no_cuda"}
         with _M(s.device): pass
