@@ -1,126 +1,59 @@
 from datetime import datetime
-
-import numpy as np
-import pandas as pd
-
+import numpy as np, pandas as pd
 from app.utils.logger import log
 
-TIMESTAMP_FORMATS = ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", 
-                     "%Y-%m-%dT%H:%M:%S.%f", "%d/%m/%Y", "%m/%d/%Y")
+_TF = ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f", "%d/%m/%Y", "%m/%d/%Y")
 
 
 class DataProcessor:
     __slots__ = ()
-    
-    def prepare(self, values: list[float], timestamps: list[str] | None = None,
-                fill_missing: bool = True, normalize: bool = False) -> dict:
+
+    def prepare(self, vals: list[float], ts: list[str] | None = None, fill: bool = True, norm: bool = False) -> dict:
         try:
-            clean = self._clean(values, fill_missing)
-            ts = self._parse_ts(timestamps) if timestamps else None
-            norm, norm_info = (self._normalize(clean) if normalize else (clean, None))
-            return {
-                "values": norm, "timestamps": ts, "original_length": len(values),
-                "processed_length": len(clean), "normalization_info": norm_info,
-                "patterns": self._patterns(clean), "data_quality": self._quality(clean)
-            }
-        except Exception as e:
-            log.error(f"Error preparando datos: {e}")
-            raise
-    
-    def _clean(self, values: list[float], fill: bool = True) -> list[float]:
-        if len(values) < 2: raise ValueError("Se necesitan al menos 2 valores")
-        arr = np.array(values, dtype=float)
-        arr[np.isinf(arr)] = np.nan
-        
-        if (nan_ct := np.isnan(arr).sum()) > 0:
-            if not fill: raise ValueError(f"Hay {nan_ct} valores NaN y fill_missing=False")
-            if np.isnan(arr).all(): raise ValueError("Todos los valores son NaN")
-            s = pd.Series(arr).interpolate(method='linear', limit_direction='both').ffill().bfill()
-            arr = s.values
-        return arr.tolist()
-    
-    def _parse_ts(self, timestamps: list[str]) -> list[datetime]:
-        result = []
-        for ts in timestamps:
-            parsed = None
-            for fmt in TIMESTAMP_FORMATS:
-                try:
-                    parsed = datetime.strptime(ts, fmt)
-                    break
-                except ValueError: continue
-            if parsed is None:
-                try: parsed = pd.to_datetime(ts)
-                except (ValueError, pd.errors.ParserError) as exc:
-                    raise ValueError(f"No se pudo parsear timestamp: {ts}") from exc
-            result.append(parsed)
-        if result != sorted(result): log.warning("Timestamps no ordenados cronológicamente")
-        return result
-    
-    def _normalize(self, values: list[float]) -> tuple:
-        arr = np.array(values)
-        mn, mx = arr.min(), arr.max()
-        if mn == mx: return values, None
-        return ((arr - mn) / (mx - mn)).tolist(), {"method": "min_max", "min": float(mn), 
-                                                    "max": float(mx), "range": float(mx - mn)}
-    
-    def _patterns(self, values: list[float]) -> dict:
-        arr = np.array(values)
-        return {"trend": self._trend(arr), "seasonality": self._seasonality(arr),
-                "volatility": self._volatility(arr), "outliers": self._outliers(arr)}
-    
-    def _trend(self, arr: np.ndarray) -> dict:
-        x = np.arange(len(arr))
-        corr = np.corrcoef(x, arr)[0, 1]
-        slope = corr * (np.std(arr) / np.std(x)) if np.std(x) else 0
-        thresh = np.std(arr) * 0.1
-        ttype = "increasing" if slope > thresh else ("decreasing" if slope < -thresh else "neutral")
-        strength = abs(slope) / np.std(arr) if np.std(arr) else 0
-        return {"type": ttype, "slope": float(slope), "strength": float(strength)}
-    
-    def _seasonality(self, arr: np.ndarray) -> dict:
-        n = len(arr)
-        if n < 12: return {"detected": False, "reason": "insufficient_data"}
-        
-        corrs = []
-        for lag in range(2, min(n // 2, 24)):
-            if n <= lag: continue
-            try:
-                c = np.corrcoef(arr[:-lag], arr[lag:])[0, 1]
-                if not np.isnan(c): corrs.append((lag, abs(c)))
-            except (ValueError, FloatingPointError): continue
-        
-        if not corrs: return {"detected": False, "reason": "no_pattern"}
-        best_lag, best_corr = max(corrs, key=lambda x: x[1])
-        return {"detected": best_corr > 0.3, "period": best_lag, "strength": float(best_corr)}
-    
-    def _volatility(self, arr: np.ndarray) -> dict:
-        if len(arr) < 2: return {"volatility": 0.0, "cv": 0.0}
-        std, mean = np.std(arr), np.mean(arr)
-        return {"volatility": float(std), "cv": float(std / abs(mean)) if mean else float('inf')}
-    
-    def _outliers(self, arr: np.ndarray) -> dict:
-        if len(arr) < 4: return {"count": 0, "indices": [], "method": "insufficient_data"}
-        q1, q3 = np.percentile(arr, 25), np.percentile(arr, 75)
-        iqr = q3 - q1
-        lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
-        idx = np.where((arr < lo) | (arr > hi))[0].tolist()
-        return {"count": len(idx), "indices": idx, "method": "iqr", "bounds": {"lower": float(lo), "upper": float(hi)}}
-    
-    def _quality(self, values: list[float]) -> dict:
-        arr = np.array(values)
-        mean, std = np.mean(arr), np.std(arr)
-        
-        score = 1.0
-        if len(arr) < 10: score *= 0.7
-        elif len(arr) < 20: score *= 0.9
-        if mean and std / abs(mean) < 0.01: score *= 0.5
-        if (ur := len(np.unique(arr)) / len(arr)) < 0.5: score *= 0.8
-        
-        return {"length": len(values), "completeness": 1.0, "mean": float(mean), "std": float(std),
-                "min": float(arr.min()), "max": float(arr.max()), "zeros_count": int((arr == 0).sum()),
-                "unique_values": len(np.unique(arr)), "quality_score": max(0, min(1, score))}
-    
-    def denormalize(self, preds: dict[str, list[float]], norm_info: dict | None) -> dict[str, list[float]]:
-        if not norm_info or norm_info.get("method") != "min_max": return preds
-        mn, rng = norm_info["min"], norm_info["range"]
-        return {k: [v * rng + mn for v in vals] for k, vals in preds.items()}
+            c = self._c(vals, fill); t = self._t(ts) if ts else None; n, ni = (self._n(c) if norm else (c, None))
+            return {"values": n, "timestamps": t, "original_length": len(vals), "processed_length": len(c), "normalization_info": ni, "patterns": self._p(c), "data_quality": self._q(c)}
+        except Exception as e: log.error(f"Error preparando datos: {e}"); raise
+
+    def _c(self, v, fill=True):
+        if len(v) < 2: raise ValueError("Se necesitan al menos 2 valores")
+        a = np.array(v, dtype=float); a[np.isinf(a)] = np.nan
+        if (nc := np.isnan(a).sum()) > 0:
+            if not fill: raise ValueError(f"Hay {nc} valores NaN y fill_missing=False")
+            if np.isnan(a).all(): raise ValueError("Todos los valores son NaN")
+            a = pd.Series(a).interpolate(method='linear', limit_direction='both').ffill().bfill().values
+        return a.tolist()
+
+    def _t(self, ts):
+        def _p(s):
+            for f in _TF:
+                try: return datetime.strptime(s, f)
+                except: pass
+            try: return pd.to_datetime(s)
+            except: raise ValueError(f"No se pudo parsear timestamp: {s}")
+        r = [_p(x) for x in ts]; r != sorted(r) and log.warning("Timestamps no ordenados cronológicamente"); return r
+
+    def _n(self, v):
+        a = np.array(v); mn, mx = a.min(), a.max()
+        return (v, None) if mn == mx else (((a - mn) / (mx - mn)).tolist(), {"method": "min_max", "min": float(mn), "max": float(mx), "range": float(mx - mn)})
+
+    def _p(self, v):
+        a = np.array(v)
+        x = np.arange(len(a)); cr = np.corrcoef(x, a)[0, 1]; sl = cr * (np.std(a) / np.std(x)) if np.std(x) else 0; th = np.std(a) * 0.1
+        tr = {"type": "increasing" if sl > th else ("decreasing" if sl < -th else "neutral"), "slope": float(sl), "strength": abs(sl) / np.std(a) if np.std(a) else 0}
+        n = len(a); corrs = []
+        if n >= 12:
+            for lag in range(2, min(n // 2, 24)):
+                try: c = np.corrcoef(a[:-lag], a[lag:])[0, 1]; np.isnan(c) or corrs.append((lag, abs(c)))
+                except: pass
+        ss = {"detected": False, "reason": "insufficient_data"} if n < 12 else ({"detected": False, "reason": "no_pattern"} if not corrs else (lambda bl, bc: {"detected": bc > 0.3, "period": bl, "strength": float(bc)})(*max(corrs, key=lambda x: x[1])))
+        s, m = np.std(a), np.mean(a); vo = {"volatility": float(s), "cv": float(s / abs(m)) if m else float('inf')} if len(a) >= 2 else {"volatility": 0.0, "cv": 0.0}
+        if len(a) >= 4: q1, q3 = np.percentile(a, 25), np.percentile(a, 75); iq = q3 - q1; lo, hi = q1 - 1.5 * iq, q3 + 1.5 * iq; idx = np.where((a < lo) | (a > hi))[0].tolist(); ol = {"count": len(idx), "indices": idx, "method": "iqr", "bounds": {"lower": float(lo), "upper": float(hi)}}
+        else: ol = {"count": 0, "indices": [], "method": "insufficient_data"}
+        return {"trend": tr, "seasonality": ss, "volatility": vo, "outliers": ol}
+
+    def _q(self, v):
+        a = np.array(v); m, s = np.mean(a), np.std(a); sc = 0.7 if len(a) < 10 else (0.9 if len(a) < 20 else 1.0)
+        m and s / abs(m) < 0.01 and (sc := sc * 0.5); len(np.unique(a)) / len(a) < 0.5 and (sc := sc * 0.8)
+        return {"length": len(v), "completeness": 1.0, "mean": float(m), "std": float(s), "min": float(a.min()), "max": float(a.max()), "zeros_count": int((a == 0).sum()), "unique_values": len(np.unique(a)), "quality_score": max(0, min(1, sc))}
+
+    def denormalize(self, preds, ni): return preds if not ni or ni.get("method") != "min_max" else {k: [x * ni["range"] + ni["min"] for x in vs] for k, vs in preds.items()}
